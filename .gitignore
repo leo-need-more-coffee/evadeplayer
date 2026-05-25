@@ -1,0 +1,35 @@
+# Binaries
+api/bin/
+transcoder/bin/
+*.exe
+*.out
+
+# Go build cache
+*.test
+*.prof
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker override (local dev)
+docker-compose.override.yml
+
+# Nginx secrets / certs
+nginx/*.crt
+nginx/*.key
+nginx/*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
