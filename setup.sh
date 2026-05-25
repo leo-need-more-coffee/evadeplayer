@@ -411,7 +411,24 @@ accel="$(choose "Acceleration backend" "$cur_accel" \
 
 compose_file="$(compose_files_for "$mode" "$accel")"
 
-# ══ 7. Write .env ═════════════════════════════════════════════════════════════
+# ══ 7. Player ═════════════════════════════════════════════════════════════════
+player_enabled="false"
+if [[ "$mode" != "transcoder" ]]; then
+  section "Player"
+  if [[ ! -f "$ROOT_DIR/player/package.json" ]]; then
+    warn "Submodule not found. To include the player, initialize it first:"
+    info "  git submodule add https://github.com/Alukkart/evade-player player"
+    info "  git submodule update --init --recursive"
+    info "Skipping player for now."
+  else
+    player_enabled="$(ask_bool PLAYER_ENABLED "Include embedded player UI" "true")"
+  fi
+fi
+
+compose_profiles=""
+[[ "$player_enabled" == "true" ]] && compose_profiles="player"
+
+# ══ 8. Write .env ═════════════════════════════════════════════════════════════
 section "Writing .env"
 
 if [[ -f "$ENV_FILE" ]]; then
@@ -453,6 +470,8 @@ TRANSCODE_SPRITE_HEIGHT=$sprite_h
 TRANSCODE_SPRITE_COLUMNS=$sprite_cols
 TRANSCODE_SPRITE_INTERVAL_SECONDS=$sprite_interval
 TRANSCODE_IMAGE_STREAM_BANDWIDTH=$image_stream_bw
+
+COMPOSE_PROFILES=
 EOF
 else
   # Build auth block based on mode so the .env stays readable.
@@ -519,6 +538,10 @@ TRANSCODE_SPRITE_HEIGHT=$sprite_h
 TRANSCODE_SPRITE_COLUMNS=$sprite_cols
 TRANSCODE_SPRITE_INTERVAL_SECONDS=$sprite_interval
 TRANSCODE_IMAGE_STREAM_BANDWIDTH=$image_stream_bw
+
+# Player
+PLAYER_ENABLED=$player_enabled
+COMPOSE_PROFILES=$compose_profiles
 EOF
 fi
 
@@ -557,6 +580,8 @@ case "$mode" in
       printf "  ${D}%-14s${N} %s\n"  "API direct:"   "http://localhost:$api_port"
       printf "  ${D}%-14s${N} %s\n"  "Logs:"         "make logs"
       printf "  ${D}%-14s${N} %s\n"  "Stop:"         "make down"
+      [[ "$player_enabled" == "true" ]] && printf "  ${D}%-14s${N} %s\n" "Player:" "$public_host/player/"
+      printf "  ${D}%-14s${N} %s\n"  "Swagger:"      "$public_host/swagger/"
       sep
     else
       printf "\n  Start later:\n    make build && make up\n"
@@ -577,6 +602,8 @@ case "$mode" in
       printf "  ${D}%-14s${N} %s\n"  "API direct:"   "http://localhost:$api_port"
       printf "  ${D}%-14s${N} %s\n"  "Logs:"         "make logs"
       printf "  ${D}%-14s${N} %s\n"  "Stop:"         "make down"
+      [[ "$player_enabled" == "true" ]] && printf "  ${D}%-14s${N} %s\n" "Player:" "$public_host/player/"
+      printf "  ${D}%-14s${N} %s\n"  "Swagger:"      "$public_host/swagger/"
       sep
       echo
       info "To set up the transcoder on a remote server:"
@@ -607,5 +634,18 @@ case "$mode" in
     fi
     ;;
 esac
+
+if [[ "$player_enabled" == "true" ]]; then
+  sep
+  printf "\n  ${B}${CYN}Iframe embed${N}\n\n"
+  printf "  ${D}Get token + expires from:${N} GET /api/videos/{id} → manifest_url\n"
+  printf "  ${D}(parse ?token=...&expires=... from the manifest_url query string)${N}\n\n"
+  printf "  <iframe\n"
+  printf "    src=\"%s/player/?id={VIDEO_ID}&token={TOKEN}&expires={EXPIRES}&codec=h264\"\n" "$public_host"
+  printf "    allow=\"autoplay; fullscreen\" frameborder=\"0\"\n"
+  printf "    width=\"1280\" height=\"720\">\n"
+  printf "  </iframe>\n"
+  sep
+fi
 
 echo
