@@ -310,6 +310,7 @@ if [[ "$mode" != "transcoder" ]]; then
   swfs_master_port="$(ask SEAWEEDFS_MASTER_PORT "SeaweedFS master port" "9333")"
   swfs_volume_port="$(ask SEAWEEDFS_VOLUME_PORT "SeaweedFS volume port" "8080")"
   swfs_filer_port="$(ask  SEAWEEDFS_FILER_PORT  "SeaweedFS filer port"  "8888")"
+  nginx_port="$(ask       NGINX_PORT            "nginx HTTP port"       "80")"
 
   # Container-internal addresses — containers always talk over the Docker network
   redis_addr="redis:6379"
@@ -659,6 +660,7 @@ SEAWEEDFS_MASTER=$swfs_master
 SEAWEEDFS_FILER=$swfs_filer
 
 # Infrastructure host ports (what is exposed on the host OS — change if defaults conflict)
+NGINX_PORT=$nginx_port
 REDIS_PORT=$redis_port
 SEAWEEDFS_MASTER_PORT=$swfs_master_port
 SEAWEEDFS_VOLUME_PORT=$swfs_volume_port
@@ -722,6 +724,7 @@ SEAWEEDFS_MASTER=$swfs_master
 SEAWEEDFS_FILER=$swfs_filer
 
 # Infrastructure host ports (what is exposed on the host OS — change if defaults conflict)
+NGINX_PORT=$nginx_port
 REDIS_PORT=$redis_port
 SEAWEEDFS_MASTER_PORT=$swfs_master_port
 SEAWEEDFS_VOLUME_PORT=$swfs_volume_port
@@ -796,6 +799,7 @@ printf "  Compose   : %s\n"        "$compose_file"
 [[ "$mode" != "main" ]] && printf "  Accel     : ${B}%s${N}\n" "$accel"
 [[ "$mode" == "transcoder" ]] && printf "  Main srv  : %s\n" "$main_ip"
 [[ "$mode" != "transcoder" ]] && printf "  Auth mode : ${B}%s${N}\n" "$auth_mode"
+[[ "$mode" != "transcoder" ]] && printf "  nginx port: ${B}%s${N}\n" "$nginx_port"
 sep
 
 if [[ "$mode" != "main" ]]; then
@@ -820,6 +824,7 @@ case "$mode" in
       ok "Deploy complete."
       sep
       printf "  ${B}%-14s${N} %s\n"  "Service URL:"  "$public_host"
+      printf "  ${D}%-14s${N} %s\n"  "nginx direct:" "http://localhost:$nginx_port"
       printf "  ${D}%-14s${N} %s\n"  "API direct:"   "http://localhost:$api_port"
       printf "  ${D}%-14s${N} %s\n"  "Logs:"         "make logs"
       printf "  ${D}%-14s${N} %s\n"  "Stop:"         "make down"
@@ -842,6 +847,7 @@ case "$mode" in
       ok "Deploy complete."
       sep
       printf "  ${B}%-14s${N} %s\n"  "Service URL:"  "$public_host"
+      printf "  ${D}%-14s${N} %s\n"  "nginx direct:" "http://localhost:$nginx_port"
       printf "  ${D}%-14s${N} %s\n"  "API direct:"   "http://localhost:$api_port"
       printf "  ${D}%-14s${N} %s\n"  "Logs:"         "make logs"
       printf "  ${D}%-14s${N} %s\n"  "Stop:"         "make down"

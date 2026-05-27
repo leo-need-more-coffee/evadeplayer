@@ -149,7 +149,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "80:80"
+      - "${NGINX_PORT:-80}:80"
     depends_on:
       - api
       - seaweedfs-filer

@@ -151,6 +151,7 @@ Important variables:
 | `JWT_SECRET`          | JWT secret for standalone mode |
 | `SERVICE_KEY`         | Service key for backend mode   |
 | `HLS_TOKEN_SECRET`    | Secret for signed HLS URLs     |
+| `NGINX_PORT`          | Host port exposed by nginx     |
 | `TRANSCODE_ACCEL`     | `cpu`, `nvidia`, `vaapi`       |
 | `TRANSCODE_CODECS`    | Example: `h264,h265,av1`       |
 | `TRANSCODE_QUALITIES` | Example: `360p,720p,1080p`     |
