@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -42,15 +43,19 @@ func NewUploadHandler(svc *service.UploadService, maxUploadSize int64) *UploadHa
 }
 
 func (h *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[upload] request received from %s, Content-Length=%d", r.RemoteAddr, r.ContentLength)
+
 	// Disable the server-level write deadline for large file uploads.
 	// WriteTimeout is set globally for short responses, but upload can take minutes.
 	rc := http.NewResponseController(w)
 	_ = rc.SetWriteDeadline(time.Time{})
 
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		log.Printf("[upload] ParseMultipartForm error: %v", err)
 		writeError(w, http.StatusBadRequest, "failed to parse multipart form")
 		return
 	}
+	log.Printf("[upload] form parsed OK")
 
 	title := strings.TrimSpace(r.FormValue("title"))
 	if title == "" {
@@ -135,6 +140,7 @@ func (h *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		input.VersionDescription = &vd
 	}
 
+	log.Printf("[upload] starting storage upload, file size=%d ext=%s", input.Size, input.FileExt)
 	video, err := h.svc.Upload(r.Context(), input)
 	if err != nil {
 		switch {
@@ -150,6 +156,7 @@ func (h *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[upload] done, video id=%s", video.ID)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"id":     video.ID,
 		"status": video.Status,
