@@ -317,23 +317,10 @@ if [[ "$mode" != "transcoder" ]]; then
   swfs_filer="http://seaweedfs-filer:8888"
 
   # SeaweedFS volume publicUrl
-  # SeaweedFS filer redirects file requests directly to the volume node.
-  # The remote transcoder must be able to reach that address.
-  if [[ "$mode" == "main" ]]; then
-    echo
-    info "SeaweedFS redirects upload/download requests to the volume node."
-    info "The remote transcoder must reach it directly. Provide this server's"
-    info "external IP or hostname (without port — port is appended automatically)."
-    echo
-    # Restore previously saved value: strip port suffix so we show just the host
-    _cur_swfs_pub="$(default_for SEAWEEDFS_VOLUME_PUBLICURL "")"
-    _def_ext="${_cur_swfs_pub%%:*}"   # strip :port if present
-    _ext_ip="$(ask SEAWEEDFS_VOLUME_PUBLICURL "This server's external IP / hostname" "${_def_ext:-}")"
-    swfs_volume_publicurl="${_ext_ip}:${swfs_volume_port}"
-  else
-    # all-in-one: transcoder is inside Docker — uses the internal hostname, internal port is always 8080
-    swfs_volume_publicurl="seaweedfs-volume:8080"
-  fi
+  # The transcoder accesses files via the filer (not the volume directly), so the
+  # volume only needs to be reachable within the Docker network.
+  # Internal hostname is always "seaweedfs-volume" and internal port is always 8080.
+  swfs_volume_publicurl="seaweedfs-volume:8080"
 fi
 
 # ══ 4. API & Security (all-in-one / main) ════════════════════════════════════
@@ -809,7 +796,6 @@ printf "  Compose   : %s\n"        "$compose_file"
 [[ "$mode" != "main" ]] && printf "  Accel     : ${B}%s${N}\n" "$accel"
 [[ "$mode" == "transcoder" ]] && printf "  Main srv  : %s\n" "$main_ip"
 [[ "$mode" != "transcoder" ]] && printf "  Auth mode : ${B}%s${N}\n" "$auth_mode"
-[[ "$mode" == "main" ]] && printf "  Vol pubURL: %s\n" "$swfs_volume_publicurl"
 sep
 
 if [[ "$mode" != "main" ]]; then
