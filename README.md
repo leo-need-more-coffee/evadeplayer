@@ -45,7 +45,7 @@ Frontend lives separately, so you can use your own UI or connect a dedicated fro
 ## Quick Start
 
 ```bash
-git clone https://github.com/yourorg/evadeplayer.git
+git clone https://github.com/leo-need-more-coffee/evadeplayer-platform.git
 cd evadeplayer
 ./setup.sh
 ````

@@ -266,21 +266,32 @@ mode="$(choose "Deploy mode" "$cur_mode" \
 # ══ 2. Remote server addresses (transcoder mode) ══════════════════════════════
 if [[ "$mode" == "transcoder" ]]; then
   section "Remote main server"
-  info "Enter the address of the server running Postgres, Redis and SeaweedFS."
+  info "Enter the connection details for the server running Postgres, Redis and SeaweedFS."
   echo
 
   main_ip="$(ask MAIN_SERVER_IP "Main server IP / hostname" "192.168.1.100")"
-  echo
 
+  section "Database"
   pg_user="$(ask POSTGRES_USER     "Postgres user"     "evadeplayer")"
   pg_pass="$(ask POSTGRES_PASSWORD "Postgres password" "")"
   pg_db="$(ask   POSTGRES_DB       "Postgres database" "evadeplayer")"
   pg_port="$(ask DB_PORT           "Postgres port"     "5432")"
-  echo
 
-  redis_addr="$(ask  REDIS_ADDR       "Redis address"         "${main_ip}:6379")"
-  swfs_master="$(ask SEAWEEDFS_MASTER "SeaweedFS master URL"  "http://${main_ip}:9333")"
-  swfs_filer="$(ask  SEAWEEDFS_FILER  "SeaweedFS filer URL"   "http://${main_ip}:8888")"
+  section "Infrastructure ports"
+  info "Ports as configured on the main server (see its .env)."
+  echo
+  redis_port="$(ask       REDIS_PORT            "Redis port"            "6379")"
+  swfs_master_port="$(ask SEAWEEDFS_MASTER_PORT "SeaweedFS master port" "9333")"
+  swfs_volume_port="$(ask SEAWEEDFS_VOLUME_PORT "SeaweedFS volume port" "8080")"
+  swfs_filer_port="$(ask  SEAWEEDFS_FILER_PORT  "SeaweedFS filer port"  "8888")"
+  echo
+  info "The SeaweedFS volume port must also be open on the main server — the filer"
+  info "redirects file data requests there directly."
+
+  # Compute connection strings
+  redis_addr="${main_ip}:${redis_port}"
+  swfs_master="http://${main_ip}:${swfs_master_port}"
+  swfs_filer="http://${main_ip}:${swfs_filer_port}"
 fi
 
 # ══ 3. Database (all-in-one / main) ═══════════════════════════════════════════
@@ -292,10 +303,37 @@ if [[ "$mode" != "transcoder" ]]; then
   pg_db="$(ask          POSTGRES_DB       "Postgres database" "evadeplayer")"
   pg_port="$(ask        DB_PORT           "Postgres port"     "5432")"
 
-  # Inside the compose network these are always the service hostnames
+  section "Infrastructure ports"
+  info "Host-mapped ports — change if defaults conflict with existing services on this machine."
+  echo
+  redis_port="$(ask       REDIS_PORT            "Redis port"            "6379")"
+  swfs_master_port="$(ask SEAWEEDFS_MASTER_PORT "SeaweedFS master port" "9333")"
+  swfs_volume_port="$(ask SEAWEEDFS_VOLUME_PORT "SeaweedFS volume port" "8080")"
+  swfs_filer_port="$(ask  SEAWEEDFS_FILER_PORT  "SeaweedFS filer port"  "8888")"
+
+  # Container-internal addresses — containers always talk over the Docker network
   redis_addr="redis:6379"
   swfs_master="http://seaweedfs-master:9333"
   swfs_filer="http://seaweedfs-filer:8888"
+
+  # SeaweedFS volume publicUrl
+  # SeaweedFS filer redirects file requests directly to the volume node.
+  # The remote transcoder must be able to reach that address.
+  if [[ "$mode" == "main" ]]; then
+    echo
+    info "SeaweedFS redirects upload/download requests to the volume node."
+    info "The remote transcoder must reach it directly. Provide this server's"
+    info "external IP or hostname (without port — port is appended automatically)."
+    echo
+    # Restore previously saved value: strip port suffix so we show just the host
+    _cur_swfs_pub="$(default_for SEAWEEDFS_VOLUME_PUBLICURL "")"
+    _def_ext="${_cur_swfs_pub%%:*}"   # strip :port if present
+    _ext_ip="$(ask SEAWEEDFS_VOLUME_PUBLICURL "This server's external IP / hostname" "${_def_ext:-}")"
+    swfs_volume_publicurl="${_ext_ip}:${swfs_volume_port}"
+  else
+    # all-in-one: transcoder is inside Docker — uses the internal hostname, internal port is always 8080
+    swfs_volume_publicurl="seaweedfs-volume:8080"
+  fi
 fi
 
 # ══ 4. API & Security (all-in-one / main) ════════════════════════════════════
@@ -340,7 +378,9 @@ if [[ "$mode" != "transcoder" ]]; then
   hls_secret="$(ask_secret HLS_TOKEN_SECRET "HLS signing secret")"
 fi
 
-# ══ 5. Transcoder ═════════════════════════════════════════════════════════════
+# ══ 5–7. Transcoder, GPU & Encoding quality (not needed in main mode) ════════
+if [[ "$mode" != "main" ]]; then
+
 section "Transcoder"
 
 workers="$(ask   TRANSCODE_WORKERS             "Worker processes"            "2")"
@@ -497,6 +537,12 @@ if ask_yn "Configure encoding quality settings" "n"; then
   scene_cut="$(ask_bool TRANSCODE_SCENE_CUT "Extra keyframes at scene cuts" "$scene_cut")"
 fi
 
+else
+  # main mode: transcoder runs on a separate server — skip all local transcoder config
+  accel="cpu"
+  compose_file="$(compose_files_for "$mode" "$accel")"
+fi  # mode != main
+
 # ══ 8. Player ═════════════════════════════════════════════════════════════════
 player_enabled="false"
 if [[ "$mode" != "transcoder" ]]; then
@@ -527,7 +573,10 @@ if [[ "$mode" == "transcoder" ]]; then
 DEPLOY_MODE=transcoder
 COMPOSE_FILE=$compose_file
 
-# Remote main server connection
+# Remote main server
+MAIN_SERVER_IP=$main_ip
+
+# PostgreSQL
 POSTGRES_USER=$pg_user
 POSTGRES_PASSWORD=$pg_pass
 POSTGRES_DB=$pg_db
@@ -535,6 +584,13 @@ DB_HOST=$main_ip
 DB_PORT=$pg_port
 DB_SSLMODE=disable
 
+# Infrastructure ports (as configured on the main server)
+REDIS_PORT=$redis_port
+SEAWEEDFS_MASTER_PORT=$swfs_master_port
+SEAWEEDFS_VOLUME_PORT=$swfs_volume_port
+SEAWEEDFS_FILER_PORT=$swfs_filer_port
+
+# Connection strings (computed from IP + ports above)
 REDIS_ADDR=$redis_addr
 REDIS_QUEUE_KEY=transcoding_queue
 
@@ -577,8 +633,8 @@ TRANSCODE_SCENE_CUT=$scene_cut
 
 COMPOSE_PROFILES=
 EOF
-else
-  # Build auth block based on mode so the .env stays readable.
+elif [[ "$mode" == "main" ]]; then
+  # main mode: API + infra only, transcoder is on a remote server
   if [[ "$auth_mode" == "standalone" ]]; then
     _auth_block="AUTH_MODE=standalone
 JWT_SECRET=$jwt_secret
@@ -591,7 +647,7 @@ UPLOAD_AUTH=$upload_auth"
   fi
 
   cat >"$ENV_FILE" <<EOF
-DEPLOY_MODE=$mode
+DEPLOY_MODE=main
 COMPOSE_FILE=$compose_file
 
 # PostgreSQL
@@ -609,6 +665,77 @@ REDIS_QUEUE_KEY=transcoding_queue
 # SeaweedFS
 SEAWEEDFS_MASTER=$swfs_master
 SEAWEEDFS_FILER=$swfs_filer
+
+# Infrastructure host ports (what is exposed on the host OS — change if defaults conflict)
+REDIS_PORT=$redis_port
+SEAWEEDFS_MASTER_PORT=$swfs_master_port
+SEAWEEDFS_VOLUME_PORT=$swfs_volume_port
+SEAWEEDFS_FILER_PORT=$swfs_filer_port
+# SeaweedFS volume public address — remote transcoder contacts this directly for file data
+# Must be reachable from the transcoder server: <this-server-external-ip>:<SEAWEEDFS_VOLUME_PORT>
+SEAWEEDFS_VOLUME_PUBLICURL=$swfs_volume_publicurl
+
+# Auth
+$_auth_block
+SERVICE_KEY=$service_key
+
+# API
+API_PORT=$api_port
+API_BASE_URL=$public_host
+CORS_ORIGINS=$cors_origins
+MAX_UPLOAD_SIZE_GB=$max_upload_gb
+
+# Public URL
+PUBLIC_HOST=$public_host
+PUBLIC_HLS_URL=$public_host/hls
+
+# HLS signed URLs
+HLS_TOKEN_SECRET=$hls_secret
+
+# Player
+PLAYER_ENABLED=$player_enabled
+COMPOSE_PROFILES=$compose_profiles
+EOF
+else
+  # all-in-one: API + DB + local transcoder
+  if [[ "$auth_mode" == "standalone" ]]; then
+    _auth_block="AUTH_MODE=standalone
+JWT_SECRET=$jwt_secret
+AUTH_REQUIRED=$auth_required
+ALLOW_REGISTRATION=$allow_reg
+UPLOAD_AUTH=$upload_auth"
+  else
+    _auth_block="AUTH_MODE=backend
+# JWT_SECRET not used in backend mode"
+  fi
+
+  cat >"$ENV_FILE" <<EOF
+DEPLOY_MODE=all-in-one
+COMPOSE_FILE=$compose_file
+
+# PostgreSQL
+POSTGRES_USER=$pg_user
+POSTGRES_PASSWORD=$pg_pass
+POSTGRES_DB=$pg_db
+DB_HOST=postgres
+DB_PORT=$pg_port
+DB_SSLMODE=disable
+
+# Redis
+REDIS_ADDR=$redis_addr
+REDIS_QUEUE_KEY=transcoding_queue
+
+# SeaweedFS
+SEAWEEDFS_MASTER=$swfs_master
+SEAWEEDFS_FILER=$swfs_filer
+
+# Infrastructure host ports (what is exposed on the host OS — change if defaults conflict)
+REDIS_PORT=$redis_port
+SEAWEEDFS_MASTER_PORT=$swfs_master_port
+SEAWEEDFS_VOLUME_PORT=$swfs_volume_port
+SEAWEEDFS_FILER_PORT=$swfs_filer_port
+# all-in-one: transcoder is inside Docker and uses the internal hostname directly
+SEAWEEDFS_VOLUME_PUBLICURL=$swfs_volume_publicurl
 
 # Auth
 $_auth_block
@@ -674,15 +801,18 @@ section "Summary"
 sep
 printf "  Mode      : ${B}%s${N}\n" "$mode"
 printf "  Compose   : %s\n"        "$compose_file"
-printf "  Accel     : ${B}%s${N}\n" "$accel"
+[[ "$mode" != "main" ]] && printf "  Accel     : ${B}%s${N}\n" "$accel"
 [[ "$mode" == "transcoder" ]] && printf "  Main srv  : %s\n" "$main_ip"
 [[ "$mode" != "transcoder" ]] && printf "  Auth mode : ${B}%s${N}\n" "$auth_mode"
+[[ "$mode" == "main" ]] && printf "  Vol pubURL: %s\n" "$swfs_volume_publicurl"
 sep
 
-case "$accel" in
-  nvidia) warn "NVIDIA mode: ensure NVIDIA Container Toolkit is installed and the Docker NVIDIA runtime is configured." ;;
-  vaapi)  warn "VAAPI mode: ensure /dev/dri/renderD128 is accessible by the Docker daemon." ;;
-esac
+if [[ "$mode" != "main" ]]; then
+  case "$accel" in
+    nvidia) warn "NVIDIA mode: ensure NVIDIA Container Toolkit is installed and the Docker NVIDIA runtime is configured." ;;
+    vaapi)  warn "VAAPI mode: ensure /dev/dri/renderD128 is accessible by the Docker daemon." ;;
+  esac
+fi
 
 section "Build & start"
 
