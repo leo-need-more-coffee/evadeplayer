@@ -557,8 +557,13 @@ if [[ "$mode" != "transcoder" ]]; then
   fi
 fi
 
+# all-in-one includes the local transcoder via the "transcoder" profile.
+# main mode deliberately excludes it — transcoder runs on a separate server.
 compose_profiles=""
-[[ "$player_enabled" == "true" ]] && compose_profiles="player"
+[[ "$mode" == "all-in-one" ]] && compose_profiles="transcoder"
+if [[ "$player_enabled" == "true" ]]; then
+  [[ -n "$compose_profiles" ]] && compose_profiles+=",player" || compose_profiles="player"
+fi
 
 # ══ 8. Write .env ═════════════════════════════════════════════════════════════
 section "Writing .env"
@@ -840,11 +845,11 @@ case "$mode" in
     fi
     ;;
   main)
-    info "Will start: all services except the transcoder."
+    info "Will start: API, DB, SeaweedFS, nginx — transcoder profile is OFF."
     if ask_yn "Build images and start now" "y"; then
       echo
       info "Building images — this may take several minutes on first run..."
-      (cd "$ROOT_DIR" && make build && make up-no-transcoder)
+      (cd "$ROOT_DIR" && make build && make up)
       echo
       wait_for_api "$api_port"
       echo
@@ -863,7 +868,7 @@ case "$mode" in
       info "  2. ./setup.sh  →  choose 'transcoder'  →  enter this server's IP"
       info "  3. make transcoder-up"
     else
-      printf "\n  Start later:\n    make build && make up-no-transcoder\n"
+      printf "\n  Start later:\n    make build && make up\n"
     fi
     ;;
   transcoder)

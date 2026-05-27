@@ -2,12 +2,14 @@
         transcoder-up transcoder-up-nvidia transcoder-up-vaapi transcoder-down transcoder-rebuild transcoder-logs
 
 # --- Single-server (все сервисы на одной машине) ---
+# Транскодер запускается только если COMPOSE_PROFILES содержит "transcoder"
+# (setup.sh прописывает это автоматически для режима all-in-one).
 up:
 	docker compose up -d
 
-# Запустить всё кроме транскодера (транскодер на отдельном серваке)
+# Ручной запуск без транскодера (переопределяет COMPOSE_PROFILES из .env)
 up-no-transcoder:
-	docker compose up -d --scale transcoder=0
+	COMPOSE_PROFILES=$$(echo "$${COMPOSE_PROFILES}" | tr ',' '\n' | grep -v '^transcoder$$' | paste -sd ',') docker compose up -d
 
 down:
 	docker compose down
