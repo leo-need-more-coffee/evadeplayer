@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/evadeplayer/api/internal/service"
 )
@@ -41,6 +42,11 @@ func NewUploadHandler(svc *service.UploadService, maxUploadSize int64) *UploadHa
 }
 
 func (h *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
+	// Disable the server-level write deadline for large file uploads.
+	// WriteTimeout is set globally for short responses, but upload can take minutes.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "failed to parse multipart form")
 		return

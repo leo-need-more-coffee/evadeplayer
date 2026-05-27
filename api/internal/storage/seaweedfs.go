@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -25,26 +24,35 @@ func NewSeaweedFS(filerURL string) *SeaweedFS {
 }
 
 func (s *SeaweedFS) Upload(ctx context.Context, filePath string, r io.Reader, contentType string) error {
-	url := s.filerURL + "/" + strings.TrimLeft(filePath, "/")
+	uploadURL := s.filerURL + "/" + strings.TrimLeft(filePath, "/")
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", path.Base(filePath))
-	if err != nil {
-		return fmt.Errorf("create form file: %w", err)
-	}
-	if _, err := io.Copy(part, r); err != nil {
-		return fmt.Errorf("copy file data: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("close multipart writer: %w", err)
-	}
+	// Stream the file directly to SeaweedFS via io.Pipe to avoid buffering
+	// the entire file in memory (important for multi-GB uploads).
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+	go func() {
+		var gerr error
+		defer func() { pw.CloseWithError(gerr) }()
+
+		part, err := mw.CreateFormFile("file", path.Base(filePath))
+		if err != nil {
+			gerr = fmt.Errorf("create form file: %w", err)
+			return
+		}
+		if _, err := io.Copy(part, r); err != nil {
+			gerr = fmt.Errorf("copy file data: %w", err)
+			return
+		}
+		gerr = mw.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, pr)
 	if err != nil {
+		_ = pr.CloseWithError(err)
 		return fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", mw.FormDataContentType())
 
 	resp, err := s.client.Do(req)
 	if err != nil {
