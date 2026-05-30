@@ -126,15 +126,6 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  player:
-    profiles: [player]
-    build:
-      context: .
-      dockerfile: Dockerfile.player
-      args:
-        VITE_VIDEO_PROVIDER_HOST: ${PUBLIC_HOST}
-    restart: unless-stopped
-
   swagger-ui:
     image: swaggerapi/swagger-ui
     restart: unless-stopped
