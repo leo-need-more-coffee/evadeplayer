@@ -2,7 +2,7 @@
 
 ### Fast, simple, and convenient backend for your video player.
 
-Upload videos, transcode them to HLS, and get ready-to-use playback URLs for your frontend.
+Upload videos, transcode them to HLS, and get ready-to-use playback URLs by ID.
 
 [Quick Start](#quick-start) · [Architecture](#architecture) · [API](#api)
 
@@ -23,22 +23,22 @@ It handles the whole pipeline:
 - video upload
 - ffmpeg transcoding
 - HLS generation
-- playback URLs
+- signed playback URLs
 - secure media delivery
 
-Frontend lives separately, so you can use your own UI or connect a dedicated frontend repo.
+Frontend lives separately — use your own UI or connect a dedicated frontend repo.
 
 ---
 
 ## Features
 
 - Simple REST API
-- HLS streaming
+- HLS streaming with signed URLs
 - H.264 / H.265 / AV1 transcoding
-- Signed playback URLs
-- JWT or service-key auth
-- Series and episodes support
-- Audio tracks, subtitles, preview sprites
+- GPU acceleration (NVIDIA NVENC, VAAPI)
+- Service-token auth for upload
+- Configurable public or protected read access
+- Preview sprites for timeline scrubbing
 
 ---
 
@@ -48,25 +48,23 @@ Frontend lives separately, so you can use your own UI or connect a dedicated fro
 git clone https://github.com/leo-need-more-coffee/evadeplayer-platform.git
 cd evadeplayer
 ./setup.sh
-````
+```
 
 Upload a video:
 
 ```bash
 curl -X POST http://localhost/api/videos/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F title="My Video" \
+  -H "X-Service-Key: $SERVICE_KEY" \
   -F file=@video.mp4
 ```
 
-Get video info:
+Get video info by ID:
 
 ```bash
-curl http://localhost/api/videos/{id} \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost/api/videos/{id}
 ```
 
-When processing is finished, the response contains `manifest_url`.
+When processing is finished, the response contains `manifest_url` — pass it to your player directly.
 
 ---
 
@@ -74,7 +72,7 @@ When processing is finished, the response contains `manifest_url`.
 
 ```mermaid
 flowchart LR
-    A[Frontend / Client] --> B[EvadePlayer API]
+    A[Client / Frontend] --> B[EvadePlayer API]
     B --> C[(PostgreSQL)]
     B --> D[[Redis]]
     D --> E[Transcoder]
@@ -86,75 +84,62 @@ flowchart LR
 
 Flow:
 
-1. Client uploads a video to the API
-2. API stores metadata and creates a Redis job
+1. Client uploads a video using a service key
+2. API stores a record and enqueues a Redis job
 3. Transcoder processes the file with ffmpeg
-4. HLS files are stored in SeaweedFS
-5. API returns a signed playback URL
-6. nginx serves manifests and segments
+4. HLS files and sprites are stored in SeaweedFS
+5. API returns a signed `manifest_url` for the video ID
+6. nginx serves manifests and segments directly
 
 ---
 
-## Auth Modes
+## Auth
 
-### Standalone
+Upload (`POST /videos/upload`) always requires `X-Service-Key` header.
 
-EvadePlayer manages users and JWT tokens.
-
-```env
-AUTH_MODE=standalone
-JWT_SECRET=change-me
-HLS_TOKEN_SECRET=change-me
-```
-
-### Backend
-
-Your app manages users, EvadePlayer trusts a service key.
+Read access (`GET /videos/*`) is controlled by `READ_PUBLIC`:
 
 ```env
-AUTH_MODE=backend
+# true  — anyone can fetch video info and manifests (default)
+# false — X-Service-Key required for reads too
+READ_PUBLIC=true
+
 SERVICE_KEY=change-me
 HLS_TOKEN_SECRET=change-me
 ```
+
+HLS manifests and segments are always signed — URLs expire after 4 hours regardless of `READ_PUBLIC`.
 
 ---
 
 ## API
 
-Main endpoints:
-
-| Method | Path                        | Description        |
-| ------ | --------------------------- | ------------------ |
-| `POST` | `/auth/register`            | Register           |
-| `POST` | `/auth/login`               | Login              |
-| `POST` | `/videos/upload`            | Upload video       |
-| `GET`  | `/videos`                   | List videos        |
-| `GET`  | `/videos/{id}`              | Video details      |
-| `GET`  | `/videos/{id}/status`       | Transcode status   |
-| `GET`  | `/videos/{id}/storyboard`   | Preview storyboard |
-| `POST` | `/series`                   | Create series      |
-| `GET`  | `/series`                   | List series        |
-| `GET`  | `/series/{id}`              | Series details     |
-| `GET`  | `/healthz`                  | Health check       |
-
-Full spec: [`api/openapi.yaml`](api/openapi.yaml) · Swagger UI: `http://localhost/swagger/`
+| Method | Path                      | Auth           | Description           |
+| ------ | ------------------------- | -------------- | --------------------- |
+| `POST` | `/videos/upload`          | Service key    | Upload video          |
+| `GET`  | `/videos`                 | Public / key   | List videos           |
+| `GET`  | `/videos/{id}`            | Public / key   | Video details + URL   |
+| `GET`  | `/videos/{id}/status`     | Public / key   | Transcode status      |
+| `GET`  | `/videos/{id}/storyboard` | Public / key   | Sprite cues for scrub |
+| `GET`  | `/healthz`                | —              | Health check          |
 
 ---
 
 ## Config
 
-Important variables:
+| Variable              | Description                                         |
+| --------------------- | --------------------------------------------------- |
+| `SERVICE_KEY`         | Required for upload (and reads if `READ_PUBLIC=false`) |
+| `READ_PUBLIC`         | `true` = open read access, `false` = key required   |
+| `HLS_TOKEN_SECRET`    | Secret for signing HLS URLs                         |
+| `PUBLIC_HOST`         | Public base URL, e.g. `https://example.com`         |
+| `NGINX_PORT`          | Host port exposed by nginx                          |
+| `MAX_UPLOAD_SIZE_GB`  | Max upload size in GB (default: 50)                 |
+| `TRANSCODE_ACCEL`     | `cpu`, `nvidia`, or `vaapi`                         |
+| `TRANSCODE_CODECS`    | e.g. `h264,h265,av1`                                |
+| `TRANSCODE_QUALITIES` | e.g. `360p,720p,1080p`                              |
 
-| Variable              | Description                    |
-| --------------------- | ------------------------------ |
-| `AUTH_MODE`           | `standalone` or `backend`      |
-| `JWT_SECRET`          | JWT secret for standalone mode |
-| `SERVICE_KEY`         | Service key for backend mode   |
-| `HLS_TOKEN_SECRET`    | Secret for signed HLS URLs     |
-| `NGINX_PORT`          | Host port exposed by nginx     |
-| `TRANSCODE_ACCEL`     | `cpu`, `nvidia`, `vaapi`       |
-| `TRANSCODE_CODECS`    | Example: `h264,h265,av1`       |
-| `TRANSCODE_QUALITIES` | Example: `360p,720p,1080p`     |
+Run `./setup.sh` to configure interactively.
 
 ---
 
