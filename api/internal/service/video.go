@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"math"
 	"strconv"
 	"time"
@@ -15,7 +14,7 @@ import (
 	"github.com/evadeplayer/api/internal/repository"
 )
 
-var _ VideoStorer = (*repository.VideoRepo)(nil) // compile-time interface check
+var _ VideoStorer = (*repository.VideoRepo)(nil)
 
 const hlsTokenTTL = 4 * time.Hour
 
@@ -29,7 +28,7 @@ type SpriteConfig struct {
 type VideoService struct {
 	videoRepo      VideoStorer
 	hlsTokenSecret []byte
-	publicBaseURL  string // scheme+host, e.g. https://example.com
+	publicBaseURL  string
 	sprite         SpriteConfig
 }
 
@@ -44,9 +43,8 @@ func NewVideoService(videoRepo VideoStorer, hlsTokenSecret, publicHost string, s
 
 type VideoResponse struct {
 	*model.Video
-	ManifestURL string               `json:"manifest_url,omitempty"`
-	PreviewURL  string               `json:"preview_url,omitempty"`
-	Versions    []model.VideoVersion `json:"versions,omitempty"`
+	ManifestURL string `json:"manifest_url,omitempty"`
+	PreviewURL  string `json:"preview_url,omitempty"`
 }
 
 func (s *VideoService) GetVideo(ctx context.Context, id string) (*VideoResponse, error) {
@@ -59,23 +57,10 @@ func (s *VideoService) GetVideo(ctx context.Context, id string) (*VideoResponse,
 		resp.ManifestURL = s.signedManifestURL(id)
 		resp.PreviewURL = s.previewURL(id)
 	}
-	// Fetch alternative versions only for primary videos (not for versions themselves).
-	if v.VersionOf == nil {
-		versions, err := s.videoRepo.FindVersionsByID(ctx, id)
-		if err != nil {
-			log.Printf("get video %s: fetch versions: %v", id, err)
-		}
-		for _, ver := range versions {
-			if ver.Status == model.StatusReady {
-				ver.PreviewURL = s.previewURL(ver.ID)
-			}
-			resp.Versions = append(resp.Versions, *ver)
-		}
-	}
 	return resp, nil
 }
 
-func (s *VideoService) ListVideos(ctx context.Context, page, pageSize int) ([]*model.VideoListItem, int, error) {
+func (s *VideoService) ListVideos(ctx context.Context, page, pageSize int) ([]*model.Video, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -83,27 +68,17 @@ func (s *VideoService) ListVideos(ctx context.Context, page, pageSize int) ([]*m
 		pageSize = 20
 	}
 	offset := (page - 1) * pageSize
-	items, total, err := s.videoRepo.List(ctx, pageSize, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	for _, item := range items {
-		if item.Status == model.StatusReady {
-			item.PreviewURL = s.previewURL(item.ID)
-		}
-	}
-	return items, total, nil
-}
-
-func (s *VideoService) previewURL(videoID string) string {
-	return fmt.Sprintf("%s/thumbnails/%s/preview.jpg", s.publicBaseURL, videoID)
+	return s.videoRepo.List(ctx, pageSize, offset)
 }
 
 func (s *VideoService) GetStatus(ctx context.Context, id string) (*model.Video, error) {
 	return s.videoRepo.FindByID(ctx, id)
 }
 
-// Token is scoped to the video ID and covers master + quality manifests + chunks.
+func (s *VideoService) previewURL(videoID string) string {
+	return fmt.Sprintf("%s/thumbnails/%s/preview.jpg", s.publicBaseURL, videoID)
+}
+
 func (s *VideoService) signedManifestURL(videoID string) string {
 	expires := time.Now().Add(hlsTokenTTL).Unix()
 	expiresStr := strconv.FormatInt(expires, 10)
@@ -112,8 +87,8 @@ func (s *VideoService) signedManifestURL(videoID string) string {
 		s.publicBaseURL, videoID, token, expiresStr)
 }
 
-// ComputeHLSToken computes HMAC for a video ID + expiry.
-// Exported so both the service and the handler use the same logic.
+// ComputeHLSToken computes HMAC-SHA256 for a video ID + expiry.
+// Exported so both the service and the HLS handler use the same logic.
 func ComputeHLSToken(secret []byte, videoID, expires string) string {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(videoID + ":" + expires))

@@ -333,36 +333,13 @@ if [[ "$mode" != "transcoder" ]]; then
   cors_origins="$(ask    CORS_ORIGINS       "CORS origins (* or csv list)"   "*")"
   max_upload_gb="$(ask   MAX_UPLOAD_SIZE_GB "Max upload size (GB)"           "50")"
 
-  cur_auth_mode="$(default_for AUTH_MODE "standalone")"
-  auth_mode="$(choose "Auth mode" "$cur_auth_mode" \
-    "standalone:Full app — user accounts, JWT login, registration" \
-    "backend:BFF mode — service key + X-User-ID header, no user accounts")"
-
-  if [[ "$auth_mode" == "standalone" ]]; then
-    auth_required="$(ask_bool AUTH_REQUIRED      "Require auth for video access"   "true")"
-    allow_reg="$(ask_bool ALLOW_REGISTRATION     "Allow user self-registration"    "true")"
-
-    cur_upload_auth="$(default_for UPLOAD_AUTH "jwt")"
-    upload_auth="$(choose "Upload authorization" "$cur_upload_auth" \
-      "jwt:Caller must have a valid JWT (user-facing apps)" \
-      "service_key:Machine-to-machine via SERVICE_KEY header" \
-      "any:No auth check on uploads")"
-  else
-    auth_required="false"
-    allow_reg="false"
-    upload_auth="service_key"
-  fi
+  read_public="$(ask_bool READ_PUBLIC "Allow public (unauthenticated) access to videos" "true")"
 
   section "Secrets"
   info "Press Enter to keep existing value or auto-generate a new one."
   echo
 
-  if [[ "$auth_mode" == "standalone" ]]; then
-    jwt_secret="$(ask_secret JWT_SECRET "JWT secret")"
-  else
-    jwt_secret=""
-  fi
-  service_key="$(ask_secret SERVICE_KEY     "Service key")"
+  service_key="$(ask_secret SERVICE_KEY     "Service key (required for upload)")"
   hls_secret="$(ask_secret HLS_TOKEN_SECRET "HLS signing secret")"
 fi
 
@@ -628,17 +605,6 @@ COMPOSE_PROFILES=
 EOF
 elif [[ "$mode" == "main" ]]; then
   # main mode: API + infra only, transcoder is on a remote server
-  if [[ "$auth_mode" == "standalone" ]]; then
-    _auth_block="AUTH_MODE=standalone
-JWT_SECRET=$jwt_secret
-AUTH_REQUIRED=$auth_required
-ALLOW_REGISTRATION=$allow_reg
-UPLOAD_AUTH=$upload_auth"
-  else
-    _auth_block="AUTH_MODE=backend
-# JWT_SECRET not used in backend mode"
-  fi
-
   cat >"$ENV_FILE" <<EOF
 DEPLOY_MODE=main
 COMPOSE_FILE=$compose_file
@@ -670,12 +636,13 @@ SEAWEEDFS_FILER_PORT=$swfs_filer_port
 SEAWEEDFS_VOLUME_PUBLICURL=$swfs_volume_publicurl
 
 # Auth
-$_auth_block
+# Upload always requires X-Service-Key header.
+# READ_PUBLIC=true means GET /videos/* is open; false requires X-Service-Key too.
 SERVICE_KEY=$service_key
+READ_PUBLIC=$read_public
 
 # API
 API_PORT=$api_port
-API_BASE_URL=$public_host
 CORS_ORIGINS=$cors_origins
 MAX_UPLOAD_SIZE_GB=$max_upload_gb
 
@@ -692,17 +659,6 @@ COMPOSE_PROFILES=$compose_profiles
 EOF
 else
   # all-in-one: API + DB + local transcoder
-  if [[ "$auth_mode" == "standalone" ]]; then
-    _auth_block="AUTH_MODE=standalone
-JWT_SECRET=$jwt_secret
-AUTH_REQUIRED=$auth_required
-ALLOW_REGISTRATION=$allow_reg
-UPLOAD_AUTH=$upload_auth"
-  else
-    _auth_block="AUTH_MODE=backend
-# JWT_SECRET not used in backend mode"
-  fi
-
   cat >"$ENV_FILE" <<EOF
 DEPLOY_MODE=all-in-one
 COMPOSE_FILE=$compose_file
@@ -733,12 +689,13 @@ SEAWEEDFS_FILER_PORT=$swfs_filer_port
 SEAWEEDFS_VOLUME_PUBLICURL=$swfs_volume_publicurl
 
 # Auth
-$_auth_block
+# Upload always requires X-Service-Key header.
+# READ_PUBLIC=true means GET /videos/* is open; false requires X-Service-Key too.
 SERVICE_KEY=$service_key
+READ_PUBLIC=$read_public
 
 # API
 API_PORT=$api_port
-API_BASE_URL=$public_host
 CORS_ORIGINS=$cors_origins
 MAX_UPLOAD_SIZE_GB=$max_upload_gb
 
@@ -798,7 +755,7 @@ printf "  Mode      : ${B}%s${N}\n" "$mode"
 printf "  Compose   : %s\n"        "$compose_file"
 [[ "$mode" != "main" ]] && printf "  Accel     : ${B}%s${N}\n" "$accel"
 [[ "$mode" == "transcoder" ]] && printf "  Main srv  : %s\n" "$main_ip"
-[[ "$mode" != "transcoder" ]] && printf "  Auth mode : ${B}%s${N}\n" "$auth_mode"
+[[ "$mode" != "transcoder" ]] && printf "  Read public: ${B}%s${N}\n" "$read_public"
 [[ "$mode" != "transcoder" ]] && printf "  nginx port: ${B}%s${N}\n" "$nginx_port"
 sep
 

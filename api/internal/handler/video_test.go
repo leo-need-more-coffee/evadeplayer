@@ -33,9 +33,9 @@ func newMemVideos(items ...*model.Video) *memVideos {
 
 func (m *memVideos) CreateWithID(_ context.Context, v *model.Video) error {
 	cp := *v
-	v.CreatedAt = time.Now()
-	v.UpdatedAt = time.Now()
-	v.Status = model.StatusPending
+	cp.CreatedAt = time.Now()
+	cp.UpdatedAt = time.Now()
+	cp.Status = model.StatusPending
 	m.byID[v.ID] = &cp
 	m.list = append(m.list, &cp)
 	return nil
@@ -50,8 +50,8 @@ func (m *memVideos) FindByID(_ context.Context, id string) (*model.Video, error)
 	return &cp, nil
 }
 
-func (m *memVideos) List(_ context.Context, limit, offset int) ([]*model.VideoListItem, int, error) {
-	var out []*model.VideoListItem
+func (m *memVideos) List(_ context.Context, limit, offset int) ([]*model.Video, int, error) {
+	var out []*model.Video
 	for i, v := range m.list {
 		if i < offset {
 			continue
@@ -59,13 +59,10 @@ func (m *memVideos) List(_ context.Context, limit, offset int) ([]*model.VideoLi
 		if len(out) >= limit {
 			break
 		}
-		out = append(out, &model.VideoListItem{ID: v.ID, Title: v.Title, Status: v.Status})
+		cp := *v
+		out = append(out, &cp)
 	}
 	return out, len(m.list), nil
-}
-
-func (m *memVideos) FindVersionsByID(_ context.Context, _ string) ([]*model.VideoVersion, error) {
-	return nil, nil
 }
 
 func (m *memVideos) UpdateStatus(_ context.Context, id string, st model.VideoStatus, msg *string) error {
@@ -80,10 +77,9 @@ func sampleVideo(id string, status model.VideoStatus) *model.Video {
 	dur := 30.0
 	return &model.Video{
 		ID:        id,
-		UserID:    "user-1",
-		Title:     "Sample",
 		Status:    status,
 		Duration:  &dur,
+		SizeBytes: 1024,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -91,18 +87,8 @@ func sampleVideo(id string, status model.VideoStatus) *model.Video {
 
 func newVideoHandler(videos ...*model.Video) *handler.VideoHandler {
 	store := newMemVideos(videos...)
-	svc := service.NewVideoService(store, "hls-secret-32-chars-minimum-ok!!", "http://localhost/hls", service.SpriteConfig{})
+	svc := service.NewVideoService(store, "hls-secret-32-chars-minimum-ok!!", "http://localhost", service.SpriteConfig{})
 	return handler.NewVideoHandler(svc)
-}
-
-func getRequest(path string) *http.Request {
-	return httptest.NewRequest(http.MethodGet, path, nil)
-}
-
-func getVideoRequest(id string) *http.Request {
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+id, nil)
-	req.SetPathValue("id", id)
-	return req
 }
 
 // --- GetVideo ---
@@ -111,7 +97,8 @@ func TestVideoHandler_GetVideo_Ready(t *testing.T) {
 	v := sampleVideo("vid-123", model.StatusReady)
 	h := newVideoHandler(v)
 
-	req := getVideoRequest("vid-123")
+	req := httptest.NewRequest(http.MethodGet, "/videos/vid-123", nil)
+	req.SetPathValue("id", "vid-123")
 	rr := httptest.NewRecorder()
 	h.GetVideo(rr, req)
 
@@ -123,13 +110,17 @@ func TestVideoHandler_GetVideo_Ready(t *testing.T) {
 	if resp["manifest_url"] == nil {
 		t.Error("ready video must include manifest_url")
 	}
+	if resp["preview_url"] == nil {
+		t.Error("ready video must include preview_url")
+	}
 }
 
 func TestVideoHandler_GetVideo_Pending(t *testing.T) {
 	v := sampleVideo("vid-456", model.StatusPending)
 	h := newVideoHandler(v)
 
-	req := getVideoRequest("vid-456")
+	req := httptest.NewRequest(http.MethodGet, "/videos/vid-456", nil)
+	req.SetPathValue("id", "vid-456")
 	rr := httptest.NewRecorder()
 	h.GetVideo(rr, req)
 
@@ -145,7 +136,8 @@ func TestVideoHandler_GetVideo_Pending(t *testing.T) {
 
 func TestVideoHandler_GetVideo_NotFound(t *testing.T) {
 	h := newVideoHandler()
-	req := getVideoRequest("no-such-id")
+	req := httptest.NewRequest(http.MethodGet, "/videos/no-such-id", nil)
+	req.SetPathValue("id", "no-such-id")
 	rr := httptest.NewRecorder()
 	h.GetVideo(rr, req)
 	if rr.Code != http.StatusNotFound {
@@ -160,7 +152,7 @@ func TestVideoHandler_ListVideos(t *testing.T) {
 		sampleVideo("v1", model.StatusReady),
 		sampleVideo("v2", model.StatusPending),
 	)
-	req := getRequest("/videos?page=1&page_size=10")
+	req := httptest.NewRequest(http.MethodGet, "/videos?page=1&page_size=10", nil)
 	rr := httptest.NewRecorder()
 	h.ListVideos(rr, req)
 
@@ -182,10 +174,9 @@ func TestVideoHandler_ListVideos(t *testing.T) {
 
 func TestVideoHandler_ListVideos_Empty(t *testing.T) {
 	h := newVideoHandler()
-	req := getRequest("/videos")
+	req := httptest.NewRequest(http.MethodGet, "/videos", nil)
 	rr := httptest.NewRecorder()
 	h.ListVideos(rr, req)
-
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}

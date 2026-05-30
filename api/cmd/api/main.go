@@ -50,7 +50,6 @@ func main() {
 	seaweed := storage.NewSeaweedFS(cfg.SeaweedFSFiler)
 
 	videoRepo := repository.NewVideoRepo(db)
-	seriesRepo := repository.NewSeriesRepo(db)
 	producer := queue.NewProducer(rdb, cfg.RedisQueueKey)
 
 	videoSvc := service.NewVideoService(videoRepo, cfg.HLSTokenSecret, cfg.PublicHost, service.SpriteConfig{
@@ -59,47 +58,24 @@ func main() {
 		Height:          cfg.SpriteHeight,
 		Columns:         cfg.SpriteColumns,
 	})
-	seriesSvc := service.NewSeriesService(seriesRepo, cfg.PublicHost)
-	uploadSvc := service.NewUploadService(videoRepo, seriesRepo, seaweed, producer)
+	uploadSvc := service.NewUploadService(videoRepo, seaweed, producer)
 
 	videoH := handler.NewVideoHandler(videoSvc)
 	uploadH := handler.NewUploadHandler(uploadSvc, cfg.MaxUploadSize)
-	seriesH := handler.NewSeriesHandler(seriesSvc)
 	hlsAuthH := handler.NewHLSAuthHandler(cfg.HLSTokenSecret)
 	hlsManifestH := handler.NewHLSManifestHandler(cfg.HLSTokenSecret, cfg.SeaweedFSFiler)
 
-	mux := http.NewServeMux()
-
-	// Upload and read auth middleware depend on the auth mode.
-	var uploadAuth, readAuth func(http.Handler) http.Handler
-
-	switch cfg.AuthMode {
-	case "backend":
-		log.Println("auth mode: backend (BFF service key)")
-		uploadAuth = handler.BFFMiddleware(cfg.ServiceKey)
-		readAuth = func(h http.Handler) http.Handler { return h }
-
-	default: // "standalone"
-		log.Println("auth mode: standalone (JWT)")
-		userRepo := repository.NewUserRepo(db)
-		authSvc := service.NewAuthService(userRepo, cfg.JWTSecret)
-		authH := handler.NewAuthHandler(authSvc)
-
-		switch cfg.UploadAuth {
-		case "service_key":
-			uploadAuth = handler.ServiceKeyMiddleware(cfg.ServiceKey)
-		case "any":
-			uploadAuth = handler.AnyAuthMiddleware(authSvc, cfg.ServiceKey)
-		default: // "jwt"
-			uploadAuth = handler.AuthMiddleware(authSvc)
-		}
-		readAuth = handler.OptionalAuthMiddleware(authSvc, cfg.AuthRequired)
-
-		if cfg.AllowRegistration {
-			mux.HandleFunc("POST /auth/register", authH.Register)
-		}
-		mux.HandleFunc("POST /auth/login", authH.Login)
+	uploadMW := handler.ServiceKeyMiddleware(cfg.ServiceKey)
+	var readMW func(http.Handler) http.Handler
+	if cfg.ReadPublic {
+		readMW = func(h http.Handler) http.Handler { return h }
+		log.Println("read access: public")
+	} else {
+		readMW = handler.ServiceKeyMiddleware(cfg.ServiceKey)
+		log.Println("read access: service key required")
 	}
+
+	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -118,27 +94,22 @@ func main() {
 	mux.HandleFunc("GET /internal/validate-hls", hlsAuthH.ValidateToken)
 	mux.HandleFunc("GET /hls-proxy/", hlsManifestH.ServeManifest)
 
-	mux.Handle("POST /series", uploadAuth(http.HandlerFunc(seriesH.CreateSeries)))
-	mux.Handle("GET /series", readAuth(http.HandlerFunc(seriesH.ListSeries)))
-	mux.Handle("GET /series/{id}", readAuth(http.HandlerFunc(seriesH.GetSeries)))
-
-	mux.Handle("POST /videos/upload", uploadAuth(http.HandlerFunc(uploadH.Upload)))
-	mux.Handle("GET /videos", readAuth(http.HandlerFunc(videoH.ListVideos)))
-
-	mux.Handle("GET /videos/{id}/status", readAuth(http.HandlerFunc(videoH.GetStatus)))
-	mux.Handle("GET /videos/{id}/storyboard", readAuth(http.HandlerFunc(videoH.GetStoryboard)))
-	mux.Handle("GET /videos/{id}", readAuth(http.HandlerFunc(videoH.GetVideo)))
+	mux.Handle("POST /videos/upload", uploadMW(http.HandlerFunc(uploadH.Upload)))
+	mux.Handle("GET /videos", readMW(http.HandlerFunc(videoH.ListVideos)))
+	mux.Handle("GET /videos/{id}", readMW(http.HandlerFunc(videoH.GetVideo)))
+	mux.Handle("GET /videos/{id}/status", readMW(http.HandlerFunc(videoH.GetStatus)))
+	mux.Handle("GET /videos/{id}/storyboard", readMW(http.HandlerFunc(videoH.GetStoryboard)))
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.APIPort),
 		Handler:      handler.CORSMiddleware(cfg.CORSOrigins)(mux),
-		ReadTimeout:  15 * time.Minute, // large uploads
+		ReadTimeout:  15 * time.Minute,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
 	go func() {
-		log.Printf("API listening on :%s (mode: %s)", cfg.APIPort, cfg.AuthMode)
+		log.Printf("API listening on :%s", cfg.APIPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

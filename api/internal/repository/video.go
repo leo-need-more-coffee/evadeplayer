@@ -20,35 +20,26 @@ func NewVideoRepo(db *pgxpool.Pool) *VideoRepo {
 }
 
 func (r *VideoRepo) CreateWithID(ctx context.Context, v *model.Video) error {
-	q := `INSERT INTO videos (id, user_id, title, description, original_path, size_bytes,
-	                          series_id, season_number, episode_number,
-	                          version_of, version_label, version_description)
-	      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	q := `INSERT INTO videos (id, original_path, size_bytes)
+	      VALUES ($1, $2, $3)
 	      RETURNING status, created_at, updated_at`
-	err := r.db.QueryRow(ctx, q,
-		v.ID, v.UserID, v.Title, v.Description, v.OriginalPath, v.SizeBytes,
-		v.SeriesID, v.SeasonNumber, v.EpisodeNumber,
-		v.VersionOf, v.VersionLabel, v.VersionDescription,
-	).Scan(&v.Status, &v.CreatedAt, &v.UpdatedAt)
+	err := r.db.QueryRow(ctx, q, v.ID, v.OriginalPath, v.SizeBytes).
+		Scan(&v.Status, &v.CreatedAt, &v.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("create video with id: %w", err)
+		return fmt.Errorf("create video: %w", err)
 	}
 	return nil
 }
 
 func (r *VideoRepo) FindByID(ctx context.Context, id string) (*model.Video, error) {
 	v := &model.Video{}
-	q := `SELECT id, user_id, title, description, status, progress, original_path,
+	q := `SELECT id, status, progress, original_path,
 	             duration, width, height, size_bytes, error_message,
-	             series_id, season_number, episode_number,
-	             version_of, version_label, version_description,
 	             created_at, updated_at
 	      FROM videos WHERE id = $1`
 	err := r.db.QueryRow(ctx, q, id).Scan(
-		&v.ID, &v.UserID, &v.Title, &v.Description, &v.Status, &v.Progress, &v.OriginalPath,
+		&v.ID, &v.Status, &v.Progress, &v.OriginalPath,
 		&v.Duration, &v.Width, &v.Height, &v.SizeBytes, &v.ErrorMessage,
-		&v.SeriesID, &v.SeasonNumber, &v.EpisodeNumber,
-		&v.VersionOf, &v.VersionLabel, &v.VersionDescription,
 		&v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
@@ -60,30 +51,8 @@ func (r *VideoRepo) FindByID(ctx context.Context, id string) (*model.Video, erro
 	return v, nil
 }
 
-func (r *VideoRepo) FindVersionsByID(ctx context.Context, videoID string) ([]*model.VideoVersion, error) {
-	q := `SELECT id, COALESCE(version_label, ''), COALESCE(version_description, ''), status
-	      FROM videos WHERE version_of = $1 ORDER BY created_at LIMIT 50`
-	rows, err := r.db.Query(ctx, q, videoID)
-	if err != nil {
-		return nil, fmt.Errorf("find versions: %w", err)
-	}
-	defer rows.Close()
-
-	var versions []*model.VideoVersion
-	for rows.Next() {
-		v := &model.VideoVersion{}
-		if err := rows.Scan(&v.ID, &v.Label, &v.Description, &v.Status); err != nil {
-			return nil, fmt.Errorf("scan version: %w", err)
-		}
-		versions = append(versions, v)
-	}
-	return versions, rows.Err()
-}
-
-func (r *VideoRepo) List(ctx context.Context, limit, offset int) ([]*model.VideoListItem, int, error) {
-	q := `SELECT id, user_id, title, status, duration, width, height, size_bytes,
-	             series_id, season_number, episode_number,
-	             version_of, version_label, version_description, created_at,
+func (r *VideoRepo) List(ctx context.Context, limit, offset int) ([]*model.Video, int, error) {
+	q := `SELECT id, status, progress, duration, width, height, size_bytes, error_message, created_at, updated_at,
 	             COUNT(*) OVER() AS total
 	      FROM videos ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 	rows, err := r.db.Query(ctx, q, limit, offset)
@@ -93,14 +62,13 @@ func (r *VideoRepo) List(ctx context.Context, limit, offset int) ([]*model.Video
 	defer rows.Close()
 
 	var total int
-	var items []*model.VideoListItem
+	var items []*model.Video
 	for rows.Next() {
-		item := &model.VideoListItem{}
+		item := &model.Video{}
 		if err := rows.Scan(
-			&item.ID, &item.UserID, &item.Title, &item.Status,
-			&item.Duration, &item.Width, &item.Height, &item.SizeBytes,
-			&item.SeriesID, &item.SeasonNumber, &item.EpisodeNumber,
-			&item.VersionOf, &item.VersionLabel, &item.VersionDescription, &item.CreatedAt,
+			&item.ID, &item.Status, &item.Progress,
+			&item.Duration, &item.Width, &item.Height, &item.SizeBytes, &item.ErrorMessage,
+			&item.CreatedAt, &item.UpdatedAt,
 			&total,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan video row: %w", err)
