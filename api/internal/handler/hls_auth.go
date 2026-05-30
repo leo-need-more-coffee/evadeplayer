@@ -10,14 +10,20 @@ import (
 )
 
 type HLSAuthHandler struct {
-	secret []byte
+	secret       []byte
+	requireToken bool
 }
 
-func NewHLSAuthHandler(secret string) *HLSAuthHandler {
-	return &HLSAuthHandler{secret: []byte(secret)}
+func NewHLSAuthHandler(secret string, requireToken bool) *HLSAuthHandler {
+	return &HLSAuthHandler{secret: []byte(secret), requireToken: requireToken}
 }
 
 func (h *HLSAuthHandler) ValidateToken(w http.ResponseWriter, r *http.Request) {
+	if !h.requireToken {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	q := r.URL.Query()
 	videoID := q.Get("video_id")
 	token := q.Get("token")

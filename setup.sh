@@ -334,13 +334,19 @@ if [[ "$mode" != "transcoder" ]]; then
   max_upload_gb="$(ask   MAX_UPLOAD_SIZE_GB "Max upload size (GB)"           "50")"
 
   read_public="$(ask_bool READ_PUBLIC "Allow public (unauthenticated) access to videos" "true")"
+  hls_require_token="$(ask_bool HLS_REQUIRE_TOKEN "Require signed token for HLS video access" "true")"
 
   section "Secrets"
   info "Press Enter to keep existing value or auto-generate a new one."
   echo
 
-  service_key="$(ask_secret SERVICE_KEY     "Service key (required for upload)")"
-  hls_secret="$(ask_secret HLS_TOKEN_SECRET "HLS signing secret")"
+  service_key="$(ask_secret SERVICE_KEY "Service key (required for upload)")"
+  hls_secret=""
+  if [[ "$hls_require_token" == "true" ]]; then
+    hls_secret="$(ask_secret HLS_TOKEN_SECRET "HLS signing secret")"
+  fi
+  hls_secret_line=""
+  [[ "$hls_require_token" == "true" ]] && hls_secret_line="HLS_TOKEN_SECRET=$hls_secret"
 fi
 
 # ══ 5–7. Transcoder, GPU & Encoding quality (not needed in main mode) ════════
@@ -352,7 +358,7 @@ workers="$(ask   TRANSCODE_WORKERS             "Worker processes"            "2"
 segment_s="$(ask TRANSCODE_HLS_SEGMENT_SECONDS "HLS segment duration (s)"   "4")"
 temp_dir="$(ask  TRANSCODE_TEMP_DIR            "Temp dir (inside container)" "/tmp/evadeplayer")"
 codecs="$(ask    TRANSCODE_CODECS              "Codecs (comma-separated)"    "h264,h265,av1")"
-qualities="$(ask TRANSCODE_QUALITIES "Qualities (comma-separated)"   "360p,720p,1080p,1440p")"
+qualities="$(ask TRANSCODE_QUALITIES "Qualities (comma-separated)"   "360p,720p,1080p,1440p,original")"
 
 
 declare -A bitrate_defaults=([360p]=1000k [720p]=5000k [1080p]=8000k [1440p]=16000k [2160p]=35000k)
@@ -624,6 +630,12 @@ SEAWEEDFS_VOLUME_PUBLICURL=$swfs_volume_publicurl
 SERVICE_KEY=$service_key
 READ_PUBLIC=$read_public
 
+# HLS token enforcement
+# HLS_REQUIRE_TOKEN=true: manifest and segment URLs carry HMAC-signed tokens.
+# HLS_REQUIRE_TOKEN=false: open HLS access (still gated by READ_PUBLIC).
+HLS_REQUIRE_TOKEN=$hls_require_token
+$hls_secret_line
+
 # API
 API_PORT=$api_port
 CORS_ORIGINS=$cors_origins
@@ -632,9 +644,6 @@ MAX_UPLOAD_SIZE_GB=$max_upload_gb
 # Public URL
 PUBLIC_HOST=$public_host
 PUBLIC_HLS_URL=$public_host/hls
-
-# HLS signed URLs
-HLS_TOKEN_SECRET=$hls_secret
 
 COMPOSE_PROFILES=$compose_profiles
 EOF
@@ -675,6 +684,12 @@ SEAWEEDFS_VOLUME_PUBLICURL=$swfs_volume_publicurl
 SERVICE_KEY=$service_key
 READ_PUBLIC=$read_public
 
+# HLS token enforcement
+# HLS_REQUIRE_TOKEN=true: manifest and segment URLs carry HMAC-signed tokens.
+# HLS_REQUIRE_TOKEN=false: open HLS access (still gated by READ_PUBLIC).
+HLS_REQUIRE_TOKEN=$hls_require_token
+$hls_secret_line
+
 # API
 API_PORT=$api_port
 CORS_ORIGINS=$cors_origins
@@ -683,9 +698,6 @@ MAX_UPLOAD_SIZE_GB=$max_upload_gb
 # Public URL
 PUBLIC_HOST=$public_host
 PUBLIC_HLS_URL=$public_host/hls
-
-# HLS signed URLs
-HLS_TOKEN_SECRET=$hls_secret
 
 # Transcoder
 TRANSCODE_WORKERS=$workers
@@ -735,6 +747,7 @@ printf "  Compose   : %s\n"        "$compose_file"
 [[ "$mode" != "main" ]] && printf "  Accel     : ${B}%s${N}\n" "$accel"
 [[ "$mode" == "transcoder" ]] && printf "  Main srv  : %s\n" "$main_ip"
 [[ "$mode" != "transcoder" ]] && printf "  Read public: ${B}%s${N}\n" "$read_public"
+[[ "$mode" != "transcoder" ]] && printf "  HLS tokens : ${B}%s${N}\n" "$hls_require_token"
 [[ "$mode" != "transcoder" ]] && printf "  nginx port: ${B}%s${N}\n" "$nginx_port"
 sep
 

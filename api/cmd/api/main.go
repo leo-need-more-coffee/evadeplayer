@@ -52,7 +52,7 @@ func main() {
 	videoRepo := repository.NewVideoRepo(db)
 	producer := queue.NewProducer(rdb, cfg.RedisQueueKey)
 
-	videoSvc := service.NewVideoService(videoRepo, cfg.HLSTokenSecret, cfg.PublicHost, service.SpriteConfig{
+	videoSvc := service.NewVideoService(videoRepo, cfg.HLSTokenSecret, cfg.PublicHost, cfg.HLSRequireToken, service.SpriteConfig{
 		IntervalSeconds: cfg.SpriteIntervalSeconds,
 		Width:           cfg.SpriteWidth,
 		Height:          cfg.SpriteHeight,
@@ -62,8 +62,8 @@ func main() {
 
 	videoH := handler.NewVideoHandler(videoSvc)
 	uploadH := handler.NewUploadHandler(uploadSvc, cfg.MaxUploadSize)
-	hlsAuthH := handler.NewHLSAuthHandler(cfg.HLSTokenSecret)
-	hlsManifestH := handler.NewHLSManifestHandler(cfg.HLSTokenSecret, cfg.SeaweedFSFiler)
+	hlsAuthH := handler.NewHLSAuthHandler(cfg.HLSTokenSecret, cfg.HLSRequireToken)
+	hlsManifestH := handler.NewHLSManifestHandler(cfg.HLSTokenSecret, cfg.SeaweedFSFiler, cfg.HLSRequireToken)
 
 	uploadMW := handler.ServiceKeyMiddleware(cfg.ServiceKey)
 	var readMW func(http.Handler) http.Handler

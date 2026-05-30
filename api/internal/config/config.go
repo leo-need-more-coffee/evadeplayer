@@ -22,9 +22,10 @@ type Config struct {
 	SeaweedFSMaster string
 	SeaweedFSFiler  string
 
-	ServiceKey     string
-	HLSTokenSecret string
-	PublicHost     string
+	ServiceKey      string
+	HLSTokenSecret  string
+	HLSRequireToken bool
+	PublicHost      string
 
 	APIPort       string
 	ReadPublic    bool // true = GET endpoints require no auth
@@ -59,7 +60,8 @@ func Load() (*Config, error) {
 		SeaweedFSMaster: getEnv("SEAWEEDFS_MASTER", "http://localhost:9333"),
 		SeaweedFSFiler:  getEnv("SEAWEEDFS_FILER", "http://localhost:8888"),
 		ServiceKey:      req("SERVICE_KEY"),
-		HLSTokenSecret:  req("HLS_TOKEN_SECRET"),
+		HLSTokenSecret:  getEnv("HLS_TOKEN_SECRET", ""),
+		HLSRequireToken: getEnv("HLS_REQUIRE_TOKEN", "true") != "false",
 		APIPort:         getEnv("API_PORT", "8000"),
 		ReadPublic:      getEnv("READ_PUBLIC", "true") != "false",
 		CORSOrigins:     parseCORSOrigins(getEnv("CORS_ORIGINS", "*")),
@@ -73,6 +75,10 @@ func Load() (*Config, error) {
 
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("required environment variables not set: %s", strings.Join(missing, ", "))
+	}
+
+	if cfg.HLSRequireToken && cfg.HLSTokenSecret == "" {
+		return nil, fmt.Errorf("required environment variable not set: HLS_TOKEN_SECRET (set HLS_REQUIRE_TOKEN=false to disable token enforcement)")
 	}
 
 	cfg.PublicHost = resolvePublicHost()

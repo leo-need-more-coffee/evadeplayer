@@ -29,7 +29,7 @@ func doValidateRequest(h *HLSAuthHandler, videoID, token, expires string) *httpt
 }
 
 func TestHLSAuthHandler_ValidToken(t *testing.T) {
-	h := NewHLSAuthHandler(authTestSecret)
+	h := NewHLSAuthHandler(authTestSecret, true)
 	tok, exp := validToken("vid-abc")
 	rr := doValidateRequest(h, "vid-abc", tok, exp)
 	if rr.Code != http.StatusOK {
@@ -38,7 +38,7 @@ func TestHLSAuthHandler_ValidToken(t *testing.T) {
 }
 
 func TestHLSAuthHandler_MissingVideoID(t *testing.T) {
-	h := NewHLSAuthHandler(authTestSecret)
+	h := NewHLSAuthHandler(authTestSecret, true)
 	tok, exp := validToken("vid-abc")
 	rr := doValidateRequest(h, "", tok, exp)
 	if rr.Code != http.StatusUnauthorized {
@@ -47,7 +47,7 @@ func TestHLSAuthHandler_MissingVideoID(t *testing.T) {
 }
 
 func TestHLSAuthHandler_MissingToken(t *testing.T) {
-	h := NewHLSAuthHandler(authTestSecret)
+	h := NewHLSAuthHandler(authTestSecret, true)
 	_, exp := validToken("vid-abc")
 	rr := doValidateRequest(h, "vid-abc", "", exp)
 	if rr.Code != http.StatusUnauthorized {
@@ -56,7 +56,7 @@ func TestHLSAuthHandler_MissingToken(t *testing.T) {
 }
 
 func TestHLSAuthHandler_MissingExpires(t *testing.T) {
-	h := NewHLSAuthHandler(authTestSecret)
+	h := NewHLSAuthHandler(authTestSecret, true)
 	tok, _ := validToken("vid-abc")
 	rr := doValidateRequest(h, "vid-abc", tok, "")
 	if rr.Code != http.StatusUnauthorized {
@@ -65,7 +65,7 @@ func TestHLSAuthHandler_MissingExpires(t *testing.T) {
 }
 
 func TestHLSAuthHandler_ExpiredToken(t *testing.T) {
-	h := NewHLSAuthHandler(authTestSecret)
+	h := NewHLSAuthHandler(authTestSecret, true)
 	exp := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
 	tok := service.ComputeHLSToken([]byte(authTestSecret), "vid-abc", exp)
 	rr := doValidateRequest(h, "vid-abc", tok, exp)
@@ -75,7 +75,7 @@ func TestHLSAuthHandler_ExpiredToken(t *testing.T) {
 }
 
 func TestHLSAuthHandler_WrongToken(t *testing.T) {
-	h := NewHLSAuthHandler(authTestSecret)
+	h := NewHLSAuthHandler(authTestSecret, true)
 	_, exp := validToken("vid-abc")
 	rr := doValidateRequest(h, "vid-abc", "deadbeefdeadbeef", exp)
 	if rr.Code != http.StatusUnauthorized {
@@ -84,7 +84,7 @@ func TestHLSAuthHandler_WrongToken(t *testing.T) {
 }
 
 func TestHLSAuthHandler_WrongVideoID(t *testing.T) {
-	h := NewHLSAuthHandler(authTestSecret)
+	h := NewHLSAuthHandler(authTestSecret, true)
 	tok, exp := validToken("vid-abc")
 	// token for vid-abc but request claims vid-xyz
 	rr := doValidateRequest(h, "vid-xyz", tok, exp)

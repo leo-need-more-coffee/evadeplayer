@@ -71,7 +71,7 @@ func TestGetVideo_Ready(t *testing.T) {
 			UpdatedAt: time.Now(),
 		},
 	}
-	svc := service.NewVideoService(store, testHLSSecret, "http://localhost", service.SpriteConfig{})
+	svc := service.NewVideoService(store, testHLSSecret, "http://localhost", true, service.SpriteConfig{})
 
 	resp, err := svc.GetVideo(context.Background(), id)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestGetVideo_Pending(t *testing.T) {
 	store := &fakeVideoStore{
 		video: &model.Video{ID: "v1", Status: model.StatusPending},
 	}
-	svc := service.NewVideoService(store, testHLSSecret, "http://localhost", service.SpriteConfig{})
+	svc := service.NewVideoService(store, testHLSSecret, "http://localhost", true, service.SpriteConfig{})
 
 	resp, err := svc.GetVideo(context.Background(), "v1")
 	if err != nil {
@@ -114,7 +114,7 @@ func TestGetVideo_Pending(t *testing.T) {
 
 func TestGetVideo_NotFound(t *testing.T) {
 	store := &fakeVideoStore{}
-	svc := service.NewVideoService(store, testHLSSecret, "http://localhost", service.SpriteConfig{})
+	svc := service.NewVideoService(store, testHLSSecret, "http://localhost", true, service.SpriteConfig{})
 
 	_, err := svc.GetVideo(context.Background(), "no-such-id")
 	if err == nil {

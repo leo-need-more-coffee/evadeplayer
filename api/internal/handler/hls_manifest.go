@@ -13,16 +13,18 @@ import (
 )
 
 type HLSManifestHandler struct {
-	secret   []byte
-	filerURL string
-	client   *http.Client
+	secret       []byte
+	filerURL     string
+	client       *http.Client
+	requireToken bool
 }
 
-func NewHLSManifestHandler(secret, filerURL string) *HLSManifestHandler {
+func NewHLSManifestHandler(secret, filerURL string, requireToken bool) *HLSManifestHandler {
 	return &HLSManifestHandler{
-		secret:   []byte(secret),
-		filerURL: strings.TrimRight(filerURL, "/"),
-		client:   &http.Client{Timeout: 10 * time.Second},
+		secret:       []byte(secret),
+		filerURL:     strings.TrimRight(filerURL, "/"),
+		client:       &http.Client{Timeout: 10 * time.Second},
+		requireToken: requireToken,
 	}
 }
 
@@ -40,7 +42,7 @@ func (h *HLSManifestHandler) ServeManifest(w http.ResponseWriter, r *http.Reques
 	token := r.URL.Query().Get("token")
 	expiresStr := r.URL.Query().Get("expires")
 
-	if !h.validateToken(videoID, token, expiresStr) {
+	if h.requireToken && !h.validateToken(videoID, token, expiresStr) {
 		writeError(w, http.StatusUnauthorized, "invalid or expired token")
 		return
 	}
@@ -55,7 +57,12 @@ func (h *HLSManifestHandler) ServeManifest(w http.ResponseWriter, r *http.Reques
 	if codec := r.URL.Query().Get("codec"); codec != "" && strings.HasSuffix(rest, "master.m3u8") {
 		raw = filterMasterByCodec(body, codec)
 	}
-	rewritten := rewriteManifest(raw, videoID, rest, token, expiresStr)
+
+	var tokenQuery string
+	if token != "" {
+		tokenQuery = fmt.Sprintf("?token=%s&expires=%s", token, expiresStr)
+	}
+	rewritten := rewriteManifest(raw, videoID, rest, tokenQuery)
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-store")
@@ -81,7 +88,7 @@ func (h *HLSManifestHandler) fetchFromSeaweedFS(videoID, rest string) (string, e
 	return string(data), nil
 }
 
-func rewriteManifest(content, videoID, manifestPath, token, expires string) string {
+func rewriteManifest(content, videoID, manifestPath, tokenQuery string) string {
 	basePath := ""
 	if i := strings.LastIndex(manifestPath, "/"); i >= 0 {
 		basePath = manifestPath[:i+1]
@@ -96,15 +103,15 @@ func rewriteManifest(content, videoID, manifestPath, token, expires string) stri
 			continue
 		}
 		if strings.HasPrefix(trimmed, "#EXT-X-MAP:") {
-			out = append(out, rewriteTagURIAttr(trimmed, videoID, basePath, token, expires, "/hls/"))
+			out = append(out, rewriteTagURIAttr(trimmed, videoID, basePath, tokenQuery, "/hls/"))
 			continue
 		}
 		if strings.HasPrefix(trimmed, "#EXT-X-MEDIA:") {
-			out = append(out, rewriteTagURIAttr(trimmed, videoID, basePath, token, expires, "/hls-proxy/"))
+			out = append(out, rewriteTagURIAttr(trimmed, videoID, basePath, tokenQuery, "/hls-proxy/"))
 			continue
 		}
 		if strings.HasPrefix(trimmed, "#EXT-X-IMAGE-STREAM-INF:") {
-			out = append(out, rewriteTagURIAttr(trimmed, videoID, basePath, token, expires, "/hls-proxy/"))
+			out = append(out, rewriteTagURIAttr(trimmed, videoID, basePath, tokenQuery, "/hls-proxy/"))
 			continue
 		}
 		if strings.HasPrefix(trimmed, "#") {
@@ -120,13 +127,11 @@ func rewriteManifest(content, videoID, manifestPath, token, expires string) stri
 
 		switch {
 		case strings.HasSuffix(trimmed, ".m3u8"):
-			out = append(out, fmt.Sprintf("/hls-proxy/%s/%s?token=%s&expires=%s",
-				videoID, relPath, token, expires))
+			out = append(out, fmt.Sprintf("/hls-proxy/%s/%s%s", videoID, relPath, tokenQuery))
 		case strings.HasSuffix(trimmed, ".ts"), strings.HasSuffix(trimmed, ".m4s"),
 			strings.HasSuffix(trimmed, ".jpg"), strings.HasSuffix(trimmed, ".jpeg"),
 			strings.HasSuffix(trimmed, ".vtt"):
-			out = append(out, fmt.Sprintf("/hls/%s/%s?token=%s&expires=%s",
-				videoID, relPath, token, expires))
+			out = append(out, fmt.Sprintf("/hls/%s/%s%s", videoID, relPath, tokenQuery))
 		default:
 			out = append(out, line)
 		}
@@ -170,7 +175,7 @@ func filterMasterByCodec(content, codec string) string {
 // rewriteTagURIAttr rewrites the URI="..." attribute inside an HLS tag line,
 // routing sub-manifests through proxyPrefix (e.g. "/hls-proxy/") and segments
 // through "/hls/".
-func rewriteTagURIAttr(line, videoID, basePath, token, expires, proxyPrefix string) string {
+func rewriteTagURIAttr(line, videoID, basePath, tokenQuery, proxyPrefix string) string {
 	const uriPrefix = `URI="`
 	start := strings.Index(line, uriPrefix)
 	if start < 0 {
@@ -187,7 +192,7 @@ func rewriteTagURIAttr(line, videoID, basePath, token, expires, proxyPrefix stri
 		relPath = basePath + relPath
 	}
 	relPath = strings.TrimPrefix(relPath, "/")
-	newURI := fmt.Sprintf("%s%s/%s?token=%s&expires=%s", proxyPrefix, videoID, relPath, token, expires)
+	newURI := fmt.Sprintf("%s%s/%s%s", proxyPrefix, videoID, relPath, tokenQuery)
 	return line[:start] + newURI + line[start+end:]
 }
 

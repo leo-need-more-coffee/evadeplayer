@@ -28,14 +28,16 @@ type SpriteConfig struct {
 type VideoService struct {
 	videoRepo      VideoStorer
 	hlsTokenSecret []byte
+	requireToken   bool
 	publicBaseURL  string
 	sprite         SpriteConfig
 }
 
-func NewVideoService(videoRepo VideoStorer, hlsTokenSecret, publicHost string, sprite SpriteConfig) *VideoService {
+func NewVideoService(videoRepo VideoStorer, hlsTokenSecret, publicHost string, requireToken bool, sprite SpriteConfig) *VideoService {
 	return &VideoService{
 		videoRepo:      videoRepo,
 		hlsTokenSecret: []byte(hlsTokenSecret),
+		requireToken:   requireToken,
 		publicBaseURL:  publicHost,
 		sprite:         sprite,
 	}
@@ -54,7 +56,11 @@ func (s *VideoService) GetVideo(ctx context.Context, id string) (*VideoResponse,
 	}
 	resp := &VideoResponse{Video: v}
 	if v.Status == model.StatusReady {
-		resp.ManifestURL = s.signedManifestURL(id)
+		if s.requireToken {
+			resp.ManifestURL = s.signedManifestURL(id)
+		} else {
+			resp.ManifestURL = fmt.Sprintf("%s/hls-proxy/%s/master.m3u8", s.publicBaseURL, id)
+		}
 		resp.PreviewURL = s.previewURL(id)
 	}
 	return resp, nil

@@ -90,7 +90,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("TRANSCODE_ACCEL must be one of: cpu, nvidia, vaapi (got %q)", cfg.Accel)
 	}
 
-	qualityNames := getEnvList("TRANSCODE_QUALITIES", "360p,720p,1080p,1440p")
+	qualityNames := getEnvList("TRANSCODE_QUALITIES", "360p,720p,1080p,1440p,original")
 	// Per-quality video bitrate overrides. Empty string = use the default.
 	bitrateOverrides := map[string]string{
 		"360p":  getEnv("TRANSCODE_QUALITY_360P_BITRATE", ""),
